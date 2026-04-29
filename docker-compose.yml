@@ -1,0 +1,95 @@
+services:
+
+  db:
+    image: postgres:15-alpine
+    container_name: asir_db
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - ./db_data:/var/lib/postgresql/data
+    networks:
+      - asir_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    container_name: asir_backend
+    restart: always
+    env_file: .env
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - asir_network
+
+  frontend:
+    build: ./frontend
+    container_name: asir_frontend
+    restart: always
+    env_file: .env
+    ports:
+      - "8501:8501"
+    depends_on:
+      - backend
+    networks:
+      - asir_network
+
+  ftps_server:
+    image: stilliard/pure-ftpd
+    container_name: asir_ftps
+    restart: always
+    ports:
+      - "21:21"
+      - "30000-30009:30000-30009"
+    environment:
+      PUBLICHOST: asir_ftps
+      FTP_USER_NAME: ${FTP_USER_NAME}
+      FTP_USER_PASS: ${FTP_USER_PASS}
+      FTP_USER_HOME: /home/ftpuser
+      ADDED_FLAGS: "--tls=1"
+    volumes:
+      - ./ftp_data:/home/ftpuser
+      - ./pure-ftpd.pem:/etc/ssl/private/pure-ftpd.pem:ro
+    networks:
+      - asir_network
+
+  adminer:
+    image: adminer
+    container_name: asir_adminer
+    restart: always
+    ports:
+      - "8080:8080"
+    networks:
+      - asir_network
+    # ADVERTENCIA: deshabilitar en producción o proteger con contraseña
+
+  nginx:
+    image: nginx:alpine
+    container_name: asir_nginx
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - asir_network
+
+networks:
+  asir_network:
+    driver: bridge
